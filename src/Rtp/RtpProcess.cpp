@@ -33,9 +33,10 @@
 
 namespace mediakit{
 
+
 /**
- * 合并一些时间戳相同的frame
- */
+* 合并一些时间戳相同的frame
+*/
 class FrameMerger {
 public:
     FrameMerger() = default;
@@ -84,7 +85,12 @@ RtpProcess::RtpProcess(uint32_t ssrc) {
     _track->_type = TrackVideo;
     _track->_ssrc = _ssrc;
     DebugL << printSSRC(_ssrc);
-    _muxer = std::make_shared<MultiMediaSourceMuxer>(DEFAULT_VHOST,"rtp",printSSRC(_ssrc));
+
+    GET_CONFIG(bool,toRtxp,General::kPublishToRtxp);
+    GET_CONFIG(bool,toHls,General::kPublishToHls);
+    GET_CONFIG(bool,toMP4,General::kPublishToMP4);
+
+    _muxer = std::make_shared<MultiMediaSourceMuxer>(DEFAULT_VHOST,"rtp",printSSRC(_ssrc),0,toRtxp,toRtxp,toHls,toMP4);
 
     GET_CONFIG(string,dump_dir,RtpProxy::kDumpDir);
     {
@@ -125,7 +131,7 @@ RtpProcess::~RtpProcess() {
     }
 }
 
-bool RtpProcess::inputRtp(const char *data, int data_len,const struct sockaddr *addr) {
+bool RtpProcess::inputRtp(const char *data, int data_len,const struct sockaddr *addr,uint32_t *dts_out) {
     GET_CONFIG(bool,check_source,RtpProxy::kCheckSource);
     //检查源是否合法
     if(!_addr){
@@ -140,7 +146,11 @@ bool RtpProcess::inputRtp(const char *data, int data_len,const struct sockaddr *
     }
 
     _last_rtp_time.resetTime();
-    return handleOneRtp(0,_track,(unsigned char *)data,data_len);
+    bool ret = handleOneRtp(0,_track,(unsigned char *)data,data_len);
+    if(dts_out){
+        *dts_out = _dts;
+    }
+    return ret;
 }
 
 void RtpProcess::onRtpSorted(const RtpPacket::Ptr &rtp, int) {
@@ -171,6 +181,25 @@ void RtpProcess::onRtpDecode(const void *packet, int bytes, uint32_t, int flags)
     }
 }
 
+#define SWITCH_CASE(codec_id) case codec_id : return #codec_id
+static const char *getCodecName(int codec_id) {
+    switch (codec_id) {
+        SWITCH_CASE(STREAM_VIDEO_MPEG4);
+        SWITCH_CASE(STREAM_VIDEO_H264);
+        SWITCH_CASE(STREAM_VIDEO_H265);
+        SWITCH_CASE(STREAM_VIDEO_SVAC);
+        SWITCH_CASE(STREAM_AUDIO_MP3);
+        SWITCH_CASE(STREAM_AUDIO_AAC);
+        SWITCH_CASE(STREAM_AUDIO_G711);
+        SWITCH_CASE(STREAM_AUDIO_G722);
+        SWITCH_CASE(STREAM_AUDIO_G723);
+        SWITCH_CASE(STREAM_AUDIO_G729);
+        SWITCH_CASE(STREAM_AUDIO_SVAC);
+        default:
+            return "unknown codec";
+    }
+}
+
 void RtpProcess::onPSDecode(int stream,
                        int codecid,
                        int flags,
@@ -178,6 +207,10 @@ void RtpProcess::onPSDecode(int stream,
                        int64_t dts,
                        const void *data,
                        int bytes) {
+    pts /= 90;
+    dts /= 90;
+    _stamps[codecid].revise(dts,pts,dts,pts,false);
+    _dts = dts;
 
     switch (codecid) {
         case STREAM_VIDEO_H264: {
@@ -190,14 +223,14 @@ void RtpProcess::onPSDecode(int stream,
             }
 
             if (codecid != _codecid_video) {
-                WarnL << "video track change to H264 from codecid:" << _codecid_video;
+                WarnL << "video track change to H264 from codecid:" << getCodecName(_codecid_video);
                 return;
             }
 
             if(_save_file_video){
                 fwrite((uint8_t *)data,bytes, 1, _save_file_video.get());
             }
-            auto frame = std::make_shared<H264FrameNoCacheAble>((char *) data, bytes, dts / 90, pts / 90,0);
+            auto frame = std::make_shared<H264FrameNoCacheAble>((char *) data, bytes, dts, pts,0);
             _merger->inputFrame(frame,[this](uint32_t dts, uint32_t pts, const Buffer::Ptr &buffer) {
                 _muxer->inputFrame(std::make_shared<H264FrameNoCacheAble>(buffer->data(), buffer->size(), dts, pts,4));
             });
@@ -213,13 +246,13 @@ void RtpProcess::onPSDecode(int stream,
                 _muxer->addTrack(track);
             }
             if (codecid != _codecid_video) {
-                WarnL << "video track change to H265 from codecid:" << _codecid_video;
+                WarnL << "video track change to H265 from codecid:" << getCodecName(_codecid_video);
                 return;
             }
             if(_save_file_video){
                 fwrite((uint8_t *)data,bytes, 1, _save_file_video.get());
             }
-            auto frame = std::make_shared<H265FrameNoCacheAble>((char *) data, bytes, dts / 90, pts / 90, 0);
+            auto frame = std::make_shared<H265FrameNoCacheAble>((char *) data, bytes, dts, pts, 0);
             _merger->inputFrame(frame,[this](uint32_t dts, uint32_t pts, const Buffer::Ptr &buffer) {
                 _muxer->inputFrame(std::make_shared<H265FrameNoCacheAble>(buffer->data(), buffer->size(), dts, pts, 4));
             });
@@ -236,14 +269,16 @@ void RtpProcess::onPSDecode(int stream,
             }
 
             if (codecid != _codecid_audio) {
-                WarnL << "audio track change to AAC from codecid:" << _codecid_audio;
+                WarnL << "audio track change to AAC from codecid:" << getCodecName(_codecid_audio);
                 return;
             }
-            _muxer->inputFrame(std::make_shared<AACFrameNoCacheAble>((char *) data, bytes, dts / 90, 7));
+            _muxer->inputFrame(std::make_shared<AACFrameNoCacheAble>((char *) data, bytes, dts, 7));
             break;
         }
         default:
-            WarnL << "unsupported codec type:" << codecid;
+            if(codecid != 0){
+                WarnL << "unsupported codec type:" << getCodecName(codecid);
+            }
             return;
     }
 }
@@ -262,6 +297,14 @@ string RtpProcess::get_peer_ip() {
 
 uint16_t RtpProcess::get_peer_port() {
     return ntohs(((struct sockaddr_in *) _addr)->sin_port);
+}
+
+int RtpProcess::totalReaderCount(){
+    return _muxer->totalReaderCount();
+}
+
+void RtpProcess::setListener(const std::weak_ptr<MediaSourceEvent> &listener){
+    _muxer->setListener(listener);
 }
 
 }//namespace mediakit

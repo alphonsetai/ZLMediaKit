@@ -32,8 +32,30 @@
 #include <mutex>
 #include <unordered_map>
 #include "RtpProcess.h"
+#include "Common/MediaSource.h"
 
 namespace mediakit{
+
+class RtpSelector;
+class RtpProcessHelper : public MediaSourceEvent , public std::enable_shared_from_this<RtpProcessHelper> {
+public:
+    typedef std::shared_ptr<RtpProcessHelper> Ptr;
+    RtpProcessHelper(uint32_t ssrc,const weak_ptr<RtpSelector > &parent);
+    ~RtpProcessHelper();
+    void attachEvent();
+    RtpProcess::Ptr & getProcess();
+protected:
+    // 通知其停止推流
+    bool close(MediaSource &sender,bool force) override;
+    // 通知无人观看
+    void onNoneReader(MediaSource &sender) override;
+    // 观看总人数
+    int totalReaderCount(MediaSource &sender) override;
+private:
+    weak_ptr<RtpSelector > _parent;
+    RtpProcess::Ptr _process;
+    uint32_t _ssrc = 0;
+};
 
 class RtpSelector : public std::enable_shared_from_this<RtpSelector>{
 public:
@@ -41,14 +63,14 @@ public:
     ~RtpSelector();
 
     static RtpSelector &Instance();
-    bool inputRtp(const char *data,int data_len,const struct sockaddr *addr);
-    static uint32_t getSSRC(const char *data,int data_len);
+    bool inputRtp(const char *data,int data_len,const struct sockaddr *addr ,uint32_t *dts_out = nullptr );
+    static bool getSSRC(const char *data,int data_len, uint32_t &ssrc);
     RtpProcess::Ptr getProcess(uint32_t ssrc,bool makeNew);
     void delProcess(uint32_t ssrc,const RtpProcess *ptr);
 private:
     void onManager();
 private:
-    unordered_map<uint32_t,RtpProcess::Ptr> _map_rtp_process;
+    unordered_map<uint32_t,RtpProcessHelper::Ptr> _map_rtp_process;
     recursive_mutex _mtx_map;
     Ticker _last_rtp_time;
 };

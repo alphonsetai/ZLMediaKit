@@ -82,6 +82,13 @@ public:
     void addTrack(const Track::Ptr & track) override;
 
     /**
+     * 添加Track完毕，如果是单Track，会最多等待3秒才会触发onAllTrackReady
+     * 这样会增加生成流的延时，如果添加了音视频双Track，那么可以不调用此方法
+     * 否则为了降低流注册延时，请手动调用此方法
+     */
+    void addTrackCompleted();
+
+    /**
      * 重置track
      */
     void resetTracks() override;
@@ -110,12 +117,23 @@ protected:
      */
     virtual void onTrackFrame(const Frame::Ptr &frame) {};
 private:
+    /**
+     * 触发onAllTrackReady事件
+     */
+    void emitAllTrackReady();
+
+    /**
+     * 检查track是否准备完毕
+     */
+    void checkTrackIfReady(const Track::Ptr &track);
+    void checkTrackIfReady_l(const Track::Ptr &track);
+private:
     mutable recursive_mutex _mtx;
     map<int,Track::Ptr> _track_map;
     map<int,function<void()> > _trackReadyCallback;
     bool _allTrackReady = false;
-    bool _anyTrackUnReady = false;
     Ticker _ticker;
+    int _max_track_size = 2;
 };
 
 

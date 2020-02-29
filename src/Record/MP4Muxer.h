@@ -81,7 +81,9 @@ private:
         Stamp stamp;
     };
     unordered_map<int,track_info> _codec_to_trackid;
+    List<Frame::Ptr> _frameCached;
     bool _started = false;
+    bool _have_video = false;
 };
 
 

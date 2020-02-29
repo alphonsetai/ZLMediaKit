@@ -53,6 +53,7 @@ static bool loadFile(const char *path){
     uint32_t timeStamp_last = 0;
     uint16_t len;
     char rtp[2 * 1024];
+    struct sockaddr addr = {0};
     while (true) {
         if (2 != fread(&len, 1, 2, fp)) {
             WarnL;
@@ -70,20 +71,14 @@ static bool loadFile(const char *path){
         }
 
         uint32_t timeStamp;
-        memcpy(&timeStamp, rtp + 4, 4);
-        timeStamp = ntohl(timeStamp);
-        timeStamp /= 90;
-
+        RtpSelector::Instance().inputRtp(rtp,len, &addr,&timeStamp);
         if(timeStamp_last){
             auto diff = timeStamp - timeStamp_last;
             if(diff > 0){
                 usleep(diff * 1000);
             }
         }
-
         timeStamp_last = timeStamp;
-
-        RtpSelector::Instance().inputRtp(rtp,len, nullptr);
     }
     fclose(fp);
     return true;
@@ -103,6 +98,11 @@ int main(int argc,char *argv[]) {
     rtspSrv->start<RtspSession>(554);//默认554
     rtmpSrv->start<RtmpSession>(1935);//默认1935
     httpSrv->start<HttpSession>(80);//默认80
+    //此处可以选择MP4V-ES或MP2P
+    mINI::Instance()[RtpProxy::kRtpType] = "MP4V-ES";
+    //此处选择是否导出调试文件
+//    mINI::Instance()[RtpProxy::kDumpDir] = "/Users/xzl/Desktop/";
+
     loadFile(argv[1]);
 #else
     ErrorL << "please ENABLE_RTPPROXY and then test";

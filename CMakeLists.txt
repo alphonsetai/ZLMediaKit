@@ -1,4 +1,4 @@
-﻿project(ZLMediaKit)
+project(ZLMediaKit)
 cmake_minimum_required(VERSION 3.1.3)
 #使能c++11
 set(CMAKE_CXX_STANDARD 11)
@@ -20,6 +20,7 @@ set(RELEASE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/release)
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     SET(LIBRARY_OUTPUT_PATH ${RELEASE_DIR}/linux/${BuildType})
     SET(EXECUTABLE_OUTPUT_PATH ${RELEASE_DIR}/linux/${BuildType})
+    add_compile_options(-fPIC)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Windows")
     SET(LIBRARY_OUTPUT_PATH ${RELEASE_DIR}/windows/${BuildType})
     SET(EXECUTABLE_OUTPUT_PATH ${RELEASE_DIR}/windows/${BuildType})
@@ -148,7 +149,7 @@ if(ENABLE_MP4RECORD)
 endif()
 
 #添加rtp库用于rtp转ps/ts
-if(ENABLE_RTPPROXY)
+if(ENABLE_RTPPROXY AND ENABLE_HLS)
     message(STATUS "ENABLE_RTPPROXY defined")
     aux_source_directory(${MediaServer_Root}/librtp/include src_rtp)
     aux_source_directory(${MediaServer_Root}/librtp/source src_rtp)
@@ -161,6 +162,10 @@ endif()
 
 #收集源代码
 file(GLOB ToolKit_src_list ${ToolKit_Root}/*/*.cpp ${ToolKit_Root}/*/*.h ${ToolKit_Root}/*/*.c)
+if(IOS)
+    list(APPEND ToolKit_src_list ${ToolKit_Root}/Network/Socket_ios.mm)
+endif()
+
 file(GLOB MediaKit_src_list ${MediaKit_Root}/*/*.cpp ${MediaKit_Root}/*/*.h ${MediaKit_Root}/*/*.c)
 
 #去除win32的适配代码
@@ -183,8 +188,16 @@ elseif(NOT ANDROID OR IOS)
     list(APPEND LINK_LIB_LIST pthread)
 endif ()
 
-#测试程序
-add_subdirectory(tests)
+#复制文件过来
+execute_process(COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/www ${EXECUTABLE_OUTPUT_PATH}/)
+execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/conf/config.ini ${EXECUTABLE_OUTPUT_PATH}/)
 
-#主服务器
-add_subdirectory(server)
+#添加c库
+add_subdirectory(api)
+
+if (NOT IOS)
+    #测试程序
+    add_subdirectory(tests)
+    #主服务器
+    add_subdirectory(server)
+endif ()

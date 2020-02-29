@@ -57,8 +57,10 @@ private:
     void startTimer(int timeout_ms);
     void onGetMediaSource(const MediaSource::Ptr &src);
 
+    //MediaSourceEvent override
     bool close(MediaSource &sender,bool force) override;
     void onNoneReader(MediaSource &sender) override ;
+    int totalReaderCount(MediaSource &sender) override;
 private:
     Process _process;
     Timer::Ptr _timer;
@@ -68,6 +70,7 @@ private:
     string _dst_url;
     function<void()> _onClose;
     std::weak_ptr<MediaSourceEvent> _listener;
+    Ticker _replay_ticker;
 };
 
 

@@ -45,22 +45,19 @@ RtmpSession::~RtmpSession() {
 
 void RtmpSession::onError(const SockException& err) {
     bool isPlayer = !_pPublisherSrc;
-    WarnP(this) << (isPlayer ? "播放器(" : "推流器(")
+    uint64_t duration = _ticker.createdTime()/1000;
+    WarnP(this) << (isPlayer ? "RTMP播放器(" : "RTMP推流器(")
                 << _mediaInfo._vhost << "/"
                 << _mediaInfo._app << "/"
                 << _mediaInfo._streamid
-                << ")断开:" << err.what();
+                << ")断开:" << err.what()
+                << ",耗时(s):" << duration;
 
     //流量统计事件广播
     GET_CONFIG(uint32_t,iFlowThreshold,General::kFlowThreshold);
 
     if(_ui64TotalBytes > iFlowThreshold * 1024){
-        NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastFlowReport,
-                                           _mediaInfo,
-                                           _ui64TotalBytes,
-                                           _ticker.createdTime()/1000,
-                                           isPlayer,
-                                           *this);
+        NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastFlowReport, _mediaInfo, _ui64TotalBytes, duration, isPlayer, getIdentifier(), get_peer_ip(), get_peer_port());
     }
 }
 
@@ -169,7 +166,7 @@ void RtmpSession::onCmd_publish(AMFDecoder &dec) {
             shutdown(SockException(Err_shutdown,errMsg));
             return;
         }
-        _pPublisherSrc.reset(new RtmpToRtspMediaSource(_mediaInfo._vhost,_mediaInfo._app,_mediaInfo._streamid));
+        _pPublisherSrc.reset(new RtmpMediaSourceImp(_mediaInfo._vhost,_mediaInfo._app,_mediaInfo._streamid));
         _pPublisherSrc->setListener(dynamic_pointer_cast<MediaSourceEvent>(shared_from_this()));
         //设置转协议
         _pPublisherSrc->setProtocolTranslation(enableRtxp,enableHls,enableMP4);
@@ -211,7 +208,7 @@ void RtmpSession::onCmd_deleteStream(AMFDecoder &dec) {
 	status.set("code", "NetStream.Unpublish.Success");
 	status.set("description", "Stop publishing.");
 	sendReply("onStatus", nullptr, status);
-	throw std::runtime_error(StrPrinter << "Stop publishing." << endl);
+	throw std::runtime_error(StrPrinter << "Stop publishing" << endl);
 }
 
 
@@ -302,7 +299,7 @@ void RtmpSession::sendPlayResponse(const string &err,const RtmpMediaSource::Ptr 
         strongSelf->shutdown(SockException(Err_shutdown,"rtmp ring buffer detached"));
     });
     _pPlayerSrc = src;
-    if (src->readerCount() == 1) {
+    if (src->totalReaderCount() == 1) {
         src->seekTo(0);
     }
     //提高服务器发送性能
@@ -437,9 +434,9 @@ void RtmpSession::setMetaData(AMFDecoder &dec) {
 		throw std::runtime_error("can only set metadata");
 	}
     auto metadata = dec.load<AMFValue>();
-    //dumpMetadata(metadata);
-    _metadata_got = true;
-	_pPublisherSrc->onGetMetaData(metadata);
+//    dumpMetadata(metadata);
+    _pPublisherSrc->setMetaData(metadata);
+    _set_meta_data = true;
 }
 
 void RtmpSession::onProcessCmd(AMFDecoder &dec) {
@@ -458,7 +455,7 @@ void RtmpSession::onProcessCmd(AMFDecoder &dec) {
     std::string method = dec.load<std::string>();
 	auto it = s_cmd_functions.find(method);
 	if (it == s_cmd_functions.end()) {
-		TraceP(this) << "can not support cmd:" << method;
+//		TraceP(this) << "can not support cmd:" << method;
 		return;
 	}
 	_dNowReqID = dec.load<double>();
@@ -479,10 +476,11 @@ void RtmpSession::onRtmpChunk(RtmpPacket &chunkData) {
 	case MSG_DATA3: {
 		AMFDecoder dec(chunkData.strBuf, chunkData.typeId == MSG_CMD3 ? 1 : 0);
 		std::string type = dec.load<std::string>();
-		TraceP(this) << "notify:" << type;
 		if (type == "@setDataFrame") {
 			setMetaData(dec);
-		}
+		}else{
+            TraceP(this) << "unknown notify:" << type;
+        }
 	}
 		break;
 	case MSG_AUDIO:
@@ -496,10 +494,10 @@ void RtmpSession::onRtmpChunk(RtmpPacket &chunkData) {
             _stamp[chunkData.typeId % 2].revise(chunkData.timeStamp, chunkData.timeStamp, dts_out, dts_out, true);
             chunkData.timeStamp = dts_out;
         }
-        if(!_metadata_got && !chunkData.isCfgFrame()){
-            //有些rtmp推流客户端不产生metadata，我们产生一个默认的metadata，目的是为了触发注册操作
-            _metadata_got = true;
-            _pPublisherSrc->onGetMetaData(TitleMeta().getMetadata());
+
+        if(!_set_meta_data && !chunkData.isCfgFrame()){
+            _set_meta_data = true;
+            _pPublisherSrc->setMetaData(TitleMeta().getMetadata());
         }
         _pPublisherSrc->onWrite(std::make_shared<RtmpPacket>(std::move(chunkData)));
 	}
@@ -538,7 +536,7 @@ void RtmpSession::onSendMedia(const RtmpPacket::Ptr &pkt) {
 
 bool RtmpSession::close(MediaSource &sender,bool force)  {
     //此回调在其他线程触发
-    if(!_pPublisherSrc || (!force && _pPublisherSrc->readerCount() != 0)){
+    if(!_pPublisherSrc || (!force && _pPublisherSrc->totalReaderCount())){
         return false;
     }
     string err = StrPrinter << "close media:" << sender.getSchema() << "/" << sender.getVhost() << "/" << sender.getApp() << "/" << sender.getId() << " " << force;
@@ -548,10 +546,14 @@ bool RtmpSession::close(MediaSource &sender,bool force)  {
 
 void RtmpSession::onNoneReader(MediaSource &sender) {
     //此回调在其他线程触发
-    if(!_pPublisherSrc || _pPublisherSrc->readerCount() != 0){
+    if(!_pPublisherSrc || _pPublisherSrc->totalReaderCount()){
         return;
     }
     MediaSourceEvent::onNoneReader(sender);
+}
+
+int RtmpSession::totalReaderCount(MediaSource &sender) {
+    return _pPublisherSrc ? _pPublisherSrc->totalReaderCount() : sender.readerCount();
 }
 
 void RtmpSession::setSocketFlags(){

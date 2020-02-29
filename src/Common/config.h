@@ -62,6 +62,7 @@ bool loadIniConfig(const char *ini_path = nullptr);
 #define HTTP_SCHEMA "http"
 #define RTSP_SCHEMA "rtsp"
 #define RTMP_SCHEMA "rtmp"
+#define HLS_SCHEMA "hls"
 #define DEFAULT_VHOST "__defaultVhost__"
 
 ////////////广播名称///////////
@@ -69,11 +70,11 @@ namespace Broadcast {
 
 //注册或反注册MediaSource事件广播
 extern const string kBroadcastMediaChanged;
-#define BroadcastMediaChangedArgs const bool &bRegist, const string &schema,const string &vhost,const string &app,const string &stream,MediaSource &sender
+#define BroadcastMediaChangedArgs const bool &bRegist, MediaSource &sender
 
 //MediaSource重置Track事件
 extern const string kBroadcastMediaResetTracks;
-#define BroadcastMediaResetTracksArgs const string &schema,const string &vhost,const string &app,const string &stream,MediaSource &sender
+#define BroadcastMediaResetTracksArgs MediaSource &sender
 
 //录制mp4文件成功后广播
 extern const string kBroadcastRecordMP4;
@@ -83,9 +84,14 @@ extern const string kBroadcastRecordMP4;
 extern const string kBroadcastHttpRequest;
 #define BroadcastHttpRequestArgs const Parser &parser,const HttpSession::HttpResponseInvoker &invoker,bool &consumed,TcpSession &sender
 
-//收到http 访问文件或目录的广播，通过该事件控制访问http目录的权限
+//在http文件服务器中,收到http访问文件或目录的广播,通过该事件控制访问http目录的权限
 extern const string kBroadcastHttpAccess;
-#define BroadcastHttpAccessArgs const Parser &parser,const MediaInfo &args,const string &path,const bool &is_dir,const HttpSession::HttpAccessPathInvoker &invoker,TcpSession &sender
+#define BroadcastHttpAccessArgs const Parser &parser,const string &path,const bool &is_dir,const HttpSession::HttpAccessPathInvoker &invoker,TcpSession &sender
+
+//在http文件服务器中,收到http访问文件或目录前的广播,通过该事件可以控制http url到文件路径的映射
+//在该事件中通过自行覆盖path参数，可以做到譬如根据虚拟主机或者app选择不同http根目录的目的
+extern const string kBroadcastHttpBeforeAccess;
+#define BroadcastHttpBeforeAccessArgs const Parser &parser,string &path,TcpSession &sender
 
 //该流是否需要认证？是的话调用invoker并传入realm,否则传入空的realm.如果该事件不监听则不认证
 extern const string kBroadcastOnGetRtspRealm;
@@ -121,7 +127,7 @@ extern const string kBroadcastShellLogin;
 
 //停止rtsp/rtmp/http-flv会话后流量汇报事件广播
 extern const string kBroadcastFlowReport;
-#define BroadcastFlowReportArgs const MediaInfo &args,const uint64_t &totalBytes,const uint64_t &totalDuration,const bool &isPlayer,TcpSession &sender
+#define BroadcastFlowReportArgs const MediaInfo &args,const uint64_t &totalBytes,const uint64_t &totalDuration,const bool &isPlayer, const string &sessionIdentifier, const string &peerIP,const uint16_t &peerPort
 
 //未找到流后会广播该事件，请在监听该事件后去拉流或其他方式产生流，这样就能按需拉流了
 extern const string kBroadcastNotFoundStream;
@@ -226,8 +232,6 @@ extern const string kKeepAliveSecond;
 //假定您的拉流源地址不是264或265或AAC，那么你可以使用直接代理的方式来支持rtsp代理
 //默认开启rtsp直接代理，rtmp由于没有这些问题，是强制开启直接代理的
 extern const string kDirectProxy;
-//rtsp推流是否修改时间戳
-extern const string kModifyStamp;
 } //namespace Rtsp
 
 ////////////RTMP服务器配置///////////

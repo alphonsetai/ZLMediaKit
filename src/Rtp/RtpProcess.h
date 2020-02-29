@@ -33,22 +33,25 @@
 #include "RtpDecoder.h"
 #include "PSDecoder.h"
 #include "Common/Device.h"
+#include "Common/Stamp.h"
 using namespace mediakit;
 
 namespace mediakit{
 
 string printSSRC(uint32_t ui32Ssrc);
-
 class FrameMerger;
 class RtpProcess : public RtpReceiver , public RtpDecoder , public PSDecoder {
 public:
     typedef std::shared_ptr<RtpProcess> Ptr;
     RtpProcess(uint32_t ssrc);
     ~RtpProcess();
-    bool inputRtp(const char *data,int data_len, const struct sockaddr *addr);
+    bool inputRtp(const char *data,int data_len, const struct sockaddr *addr , uint32_t *dts_out = nullptr);
     bool alive();
     string get_peer_ip();
     uint16_t get_peer_port();
+
+    int totalReaderCount();
+    void setListener(const std::weak_ptr<MediaSourceEvent> &listener);
 protected:
     void onRtpSorted(const RtpPacket::Ptr &rtp, int track_index) override ;
     void onRtpDecode(const void *packet, int bytes, uint32_t timestamp, int flags) override;
@@ -72,6 +75,8 @@ private:
     MultiMediaSourceMuxer::Ptr _muxer;
     std::shared_ptr<FrameMerger> _merger;
     Ticker _last_rtp_time;
+    map<int,Stamp> _stamps;
+    uint32_t _dts = 0;
 };
 
 }//namespace mediakit

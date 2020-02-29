@@ -68,6 +68,7 @@ const string kBroadcastReloadConfig = "kBroadcastReloadConfig";
 const string kBroadcastShellLogin = "kBroadcastShellLogin";
 const string kBroadcastNotFoundStream = "kBroadcastNotFoundStream";
 const string kBroadcastStreamNoneReader = "kBroadcastStreamNoneReader";
+const string kBroadcastHttpBeforeAccess = "kBroadcastHttpBeforeAccess";
 } //namespace Broadcast
 
 //通用配置项目
@@ -86,9 +87,9 @@ const string kPublishToMP4 = GENERAL_FIELD"publishToMP4";
 
 onceToken token([](){
     mINI::Instance()[kFlowThreshold] = 1024;
-    mINI::Instance()[kStreamNoneReaderDelayMS] = 5 * 1000;
-    mINI::Instance()[kMaxStreamWaitTimeMS] = 5 * 1000;
-    mINI::Instance()[kEnableVhost] = 1;
+    mINI::Instance()[kStreamNoneReaderDelayMS] = 20 * 1000;
+    mINI::Instance()[kMaxStreamWaitTimeMS] = 15 * 1000;
+    mINI::Instance()[kEnableVhost] = 0;
 	mINI::Instance()[kUltraLowDelay] = 1;
 	mINI::Instance()[kAddMuteAudio] = 1;
 	mINI::Instance()[kResetWhenRePlay] = 1;
@@ -125,7 +126,7 @@ onceToken token([](){
 	mINI::Instance()[kCharSet] ="utf-8";
 #endif
 
-	mINI::Instance()[kRootPath] = "./httpRoot";
+	mINI::Instance()[kRootPath] = "./www";
 	mINI::Instance()[kNotFound] =
 					"<html>"
 					"<head><title>404 Not Found</title></head>"
@@ -157,7 +158,6 @@ const string kAuthBasic = RTSP_FIELD"authBasic";
 const string kHandshakeSecond = RTSP_FIELD"handshakeSecond";
 const string kKeepAliveSecond = RTSP_FIELD"keepAliveSecond";
 const string kDirectProxy = RTSP_FIELD"directProxy";
-const string kModifyStamp = RTSP_FIELD"modifyStamp";
 
 onceToken token([](){
 	//默认Md5方式认证
@@ -165,7 +165,6 @@ onceToken token([](){
     mINI::Instance()[kHandshakeSecond] = 15;
     mINI::Instance()[kKeepAliveSecond] = 15;
 	mINI::Instance()[kDirectProxy] = 1;
-	mINI::Instance()[kModifyStamp] = false;
 },nullptr);
 } //namespace Rtsp
 
@@ -177,7 +176,7 @@ const string kHandshakeSecond = RTMP_FIELD"handshakeSecond";
 const string kKeepAliveSecond = RTMP_FIELD"keepAliveSecond";
 
 onceToken token([](){
-	mINI::Instance()[kModifyStamp] = true;
+	mINI::Instance()[kModifyStamp] = false;
     mINI::Instance()[kHandshakeSecond] = 15;
     mINI::Instance()[kKeepAliveSecond] = 15;
 },nullptr);
@@ -245,7 +244,7 @@ onceToken token([](){
 	mINI::Instance()[kAppName] = "record";
 	mINI::Instance()[kSampleMS] = 500;
 	mINI::Instance()[kFileSecond] = 60*60;
-	mINI::Instance()[kFilePath] = "./httpRoot";
+	mINI::Instance()[kFilePath] = "./www";
 	mINI::Instance()[kFileBufSize] = 64 * 1024;
 	mINI::Instance()[kFastStart] = false;
 	mINI::Instance()[kFileRepeat] = false;
@@ -271,7 +270,7 @@ onceToken token([](){
 	mINI::Instance()[kSegmentNum] = 3;
 	mINI::Instance()[kSegmentRetain] = 5;
 	mINI::Instance()[kFileBufSize] = 64 * 1024;
-	mINI::Instance()[kFilePath] = "./httpRoot";
+	mINI::Instance()[kFilePath] = "./www";
 },nullptr);
 } //namespace Hls
 

@@ -39,9 +39,7 @@ recursive_mutex MediaSource::g_mtxMediaSrc;
 MediaSource::SchemaVhostAppStreamMap MediaSource::g_mapMediaSrc;
 
 MediaSource::MediaSource(const string &strSchema, const string &strVhost, const string &strApp, const string &strId) :
-        _strSchema(strSchema),
-        _strApp(strApp),
-        _strId(strId) {
+        _strSchema(strSchema), _strApp(strApp), _strId(strId) {
     if (strVhost.empty()) {
         _strVhost = DEFAULT_VHOST;
     } else {
@@ -80,19 +78,7 @@ vector<Track::Ptr> MediaSource::getTracks(bool trackReady) const {
 
 void MediaSource::setTrackSource(const std::weak_ptr<TrackSource> &track_src) {
     _track_source = track_src;
-    weak_ptr<MediaSource> weakPtr = shared_from_this();
-    EventPollerPool::Instance().getPoller()->async([weakPtr,this](){
-        auto strongPtr = weakPtr.lock();
-        if (!strongPtr) {
-            return;
-        }
-        NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastMediaResetTracks,
-                                           _strSchema,
-                                           _strVhost,
-                                           _strApp,
-                                           _strId,
-                                           *this);
-    },false);
+    NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastMediaResetTracks, *this);
 }
 
 void MediaSource::setListener(const std::weak_ptr<MediaSourceEvent> &listener){
@@ -103,6 +89,13 @@ const std::weak_ptr<MediaSourceEvent>& MediaSource::getListener() const{
     return _listener;
 }
 
+int MediaSource::totalReaderCount(){
+    auto listener = _listener.lock();
+    if(!listener){
+        return readerCount();
+    }
+    return listener->totalReaderCount(*this);
+}
 bool MediaSource::seekTo(uint32_t ui32Stamp) {
     auto listener = _listener.lock();
     if(!listener){
@@ -144,12 +137,7 @@ void MediaSource::for_each_media(const function<void(const MediaSource::Ptr &src
 }
 
 template<typename MAP, typename FUNC>
-static bool searchMedia(MAP &map,
-                        const string &schema,
-                        const string &vhost,
-                        const string &app,
-                        const string &id,
-                        FUNC &&func) {
+static bool searchMedia(MAP &map, const string &schema, const string &vhost, const string &app, const string &id, FUNC &&func) {
     auto it0 = map.find(schema);
     if (it0 == map.end()) {
         //未找到协议
@@ -186,16 +174,9 @@ static void eraseIfEmpty(MAP &map, IT0 it0, IT1 it1, IT2 it2) {
     }
 };
 
-void findAsync_l(const MediaInfo &info,
-                            const std::shared_ptr<TcpSession> &session,
-                            bool retry,
-                            const function<void(const MediaSource::Ptr &src)> &cb){
-
-    auto src = MediaSource::find(info._schema,
-                                 info._vhost,
-                                 info._app,
-                                 info._streamid,
-                                 true);
+void findAsync_l(const MediaInfo &info, const std::shared_ptr<TcpSession> &session, bool retry,
+                 const function<void(const MediaSource::Ptr &src)> &cb){
+    auto src = MediaSource::find(info._schema, info._vhost, info._app, info._streamid, true);
     if(src || !retry){
         cb(src);
         return;
@@ -228,7 +209,11 @@ void findAsync_l(const MediaInfo &info,
             return;
         }
 
-        if(!bRegist || schema != info._schema || vhost != info._vhost || app != info._app ||stream != info._streamid){
+        if (!bRegist ||
+            sender.getSchema() != info._schema ||
+            sender.getVhost() != info._vhost ||
+            sender.getApp() != info._app ||
+            sender.getId() != info._streamid) {
             //不是自己感兴趣的事件，忽略之
             return;
         }
@@ -257,12 +242,7 @@ void MediaSource::findAsync(const MediaInfo &info, const std::shared_ptr<TcpSess
     return findAsync_l(info, session, true, cb);
 }
 
-MediaSource::Ptr MediaSource::find(
-        const string &schema,
-        const string &vhost_tmp,
-        const string &app,
-        const string &id,
-        bool bMake) {
+MediaSource::Ptr MediaSource::find(const string &schema, const string &vhost_tmp, const string &app, const string &id, bool bMake) {
     string vhost = vhost_tmp;
     if(vhost.empty()){
         vhost = DEFAULT_VHOST;
@@ -306,20 +286,7 @@ void MediaSource::regist() {
         g_mapMediaSrc[_strSchema][_strVhost][_strApp][_strId] =  shared_from_this();
     }
     InfoL << _strSchema << " " << _strVhost << " " << _strApp << " " << _strId;
-    weak_ptr<MediaSource> weakPtr = shared_from_this();
-    EventPollerPool::Instance().getPoller()->async([weakPtr,this](){
-        auto strongPtr = weakPtr.lock();
-        if (!strongPtr) {
-            return;
-        }
-        NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastMediaChanged,
-                                           true,
-                                           _strSchema,
-                                           _strVhost,
-                                           _strApp,
-                                           _strId,
-                                           *this);
-    },false);
+    NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastMediaChanged, true, *this);
 }
 bool MediaSource::unregist() {
     //反注册该源
@@ -341,13 +308,7 @@ bool MediaSource::unregist() {
 }
 void MediaSource::unregisted(){
     InfoL <<  "" <<  _strSchema << " " << _strVhost << " " << _strApp << " " << _strId;
-    NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastMediaChanged,
-                                       false,
-                                       _strSchema,
-                                       _strVhost,
-                                       _strApp,
-                                       _strId,
-                                       *this);
+    NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastMediaChanged, false, *this);
 }
 
 
@@ -387,9 +348,9 @@ void MediaInfo::parse(const string &url){
         if(pos != string::npos){
             _streamid = steamid.substr(0,pos);
             _param_strs = steamid.substr(pos + 1);
-            _params = Parser::parseArgs(_param_strs);
-            if(_params.find(VHOST_KEY) != _params.end()){
-                _vhost = _params[VHOST_KEY];
+            auto params = Parser::parseArgs(_param_strs);
+            if(params.find(VHOST_KEY) != params.end()){
+                _vhost = params[VHOST_KEY];
             }
         } else{
             _streamid = steamid;

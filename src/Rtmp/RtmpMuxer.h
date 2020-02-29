@@ -54,7 +54,7 @@ public:
      * 获取rtmp环形缓存
      * @return
      */
-    RtmpRingInterface::RingType::Ptr getRtmpRing() const;
+    RtmpRing::RingType::Ptr getRtmpRing() const;
 
     /**
      * 添加ready状态的track
@@ -71,8 +71,13 @@ public:
      * 重置所有track
      */
     void resetTracks() override ;
+
+    /**
+     * 生成config包
+     */
+     void makeConfigPacket();
 private:
-    RtmpRingInterface::RingType::Ptr _rtmpRing;
+    RtmpRing::RingType::Ptr _rtmpRing;
     AMFValue _metadata;
     RtmpCodec::Ptr _encoder[TrackMax];
 };
